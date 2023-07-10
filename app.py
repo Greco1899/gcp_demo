@@ -43,6 +43,48 @@ st.success(summarized_text)
 st.write('\n')
 st.write('\n')
 
+
+
+# Define summarization context prompt
+prompt_summarization = 'Summarize the following text:\n' 
+# Define model params for text-bison
+# https://cloud.google.com/vertex-ai/docs/generative-ai/model-reference/text
+parameters = {
+    "temperature": 0.2,
+    "max_output_tokens": 1024,   
+    "top_p": .8,                
+    "top_k": 40,                 
+}
+# Define model
+model = TextGenerationModel.from_pretrained("text-bison@001")
+# Invoke Inference
+summarized_text_palm = model.predict(
+    prompt_summarization+user_input,
+    **parameters,
+    )
+
+# Input for LLM prompting:
+st.write('And here is a summarization by PalM 2:')
+st.success(summarized_text_palm)
+st.write('\n')
+st.write('\n')
+
+
+
+st.write('Input prompt for LLM:')
+# Define user prompt
+user_prompt = st.text(label='Paste your own text or use the sample provided.', value='Give me ten interview questions for the role of program manager.')
+# Invoke Inference
+response = model.predict(
+    user_prompt,
+    **parameters,
+    )
+st.success(response)
+st.write('\n')
+st.write('\n')
+
+
+
 # st.write('Input SageMaker Model Endpoint to use for summarization:')
 # # define sagemaker endpoint
 # endpoint = st.text_input(label='SageMaker Model Endpoint')
