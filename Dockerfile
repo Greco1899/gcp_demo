@@ -1,8 +1,8 @@
 # Base image to use
 FROM python:3.9-slim
 
-# Expose ST port
-EXPOSE 8080
+# Expose Gradio port
+EXPOSE 7860
 
 # Copy and install requirements
 COPY requirements.txt app/requirements.txt
@@ -15,5 +15,4 @@ COPY . /app
 WORKDIR /app
 
 # Run application
-ENTRYPOINT ["streamlit", "run", "gcp_app.py", "--server.port=8080", "--server.address=0.0.0.0"]
-
+ENTRYPOINT ["python", "app.py"]

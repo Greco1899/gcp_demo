@@ -1,132 +1,104 @@
 # imports
-import streamlit as st
-from transformers import pipeline
-import json
-import os
+import gradio as gr
+import time
+from vertexai.preview.language_models import TextGenerationModel
+from vertexai.preview.language_models import ChatModel
+from vertexai.preview.language_models import InputOutputTextPair
 
-st.header('Welcome!')
-st.write('\n')
-st.write('\n')
+# Initialize PaLM Chatbot
+def llm_chatbot(foundational_model, context_for_model):
+    chat_model = ChatModel.from_pretrained(foundational_model)
+    chat = chat_model.start_chat(context=context_for_model)
+    return chat
+# Define model and context
+llm_chatbot = llm_chatbot('chat-bison@001', 'Your name is Ace. You are a friendly and helpful personal assistant that provides factual answers.')
 
-# cache model
-@st.cache_resource
-def init_summarizer_model():
-    summarizer_model = pipeline(task='summarization', model='sshleifer/distilbart-cnn-6-6')
-    return summarizer_model
+# Build App
+with gr.Blocks(theme=gr.themes.Default(text_size='lg')) as demo:
+    with gr.Row():
+        # Introduction
+        gr.Markdown(
+        '''
+        # Mirage - Ace
+        ## Your personal AI assistant, ready to ace any task
+        Powered by PaLM 2, a large language model from Google AI.
+        <br>
+        Start chatting with your helpful assistant below!
+        '''
+        )
+        gr.Image(value='Mirage Logo.png', height=200, width=200, show_label=False)
 
-# define model
-with st.spinner('Loading'):
-    summarizer_model = init_summarizer_model()
+    # UI User input
+    msg = gr.Textbox(lines=3,
+        label='Your Message',
+        info='"Shift"+"Enter" to send, "Enter" for new line.')
+    # UI Send message button
+    send_message = gr.Button('Send Message', size='lg')
+    # UI Chatbot and chat history
+    chatbot = gr.Chatbot().style(height=500, show_label=False)
+    # UI Sliders to tune model params
+    temperature = gr.Slider(0, 1, value=0.2, step=0.1,
+        label='Temperature', 
+        info='Lower temperatures are good for prompts that require a more deterministic and less open-ended or creative response, while higher temperatures can lead to more diverse or creative results. '
+        ) 
+    max_output_tokens = gr.Slider(128, 1024, value=128, step=128,
+        label='Max Output Tokens',
+        info='Maximum number of tokens that can be generated in the response.'
+        )
+    top_p = gr.Slider(0, 1, value=0.9, step=0.1,
+        label='Top P',
+        info='Specify a lower value for less random responses and a higher value for more random responses.'
+        )
+    top_k = gr.Slider(1, 40, value=30, step=1,
+        label='Top K',
+        info='Enter a lower value for less random responses and a higher value for more random responses.'
+        )
+    speed = gr.Slider(0.005, 0.05, value=0.0025, step=0.005, 
+        label='Speed',
+        info='Enter a lower value for slower streaming of responses and a higher value for faster streaming of resposnes.'
+        )
+    # UI reset and clear button
+    clear_chat = gr.Button('Clear and Reset', size='sm')
+    # Session state
+    state = gr.State()
 
-# text input
-st.write('Input text for summarization:')
-sample_text = '''The MAS was founded in 1971 to oversee various monetary functions associated with banking and finance. 
-Before its establishment, monetary functions were performed by government departments and agencies. 
-The acronym for its name resembles mas, the word for 'gold' in Malay, Singapore's national language - although the acronym is pronounced with each of its initial alphabets.
-As Singapore progressed, an increasingly complex banking and monetary environment required more dynamic and coherent monetary administration. 
-Therefore, in 1970, the Parliament of Singapore passed the Monetary Authority of Singapore Act leading to the formation of MAS on 1 January 1971. 
-The act gives MAS the authority to regulate all elements of monetary policy, banking, and finance in Singapore.
-During the COVID-19 pandemic, MAS brought forward its twice yearly meeting from some time in April to 30 March. 
-The MAS decided to ease the Singapore dollar's appreciation rate to zero percent, as well as adjust the policy band downwards, the first such move since the Global Financial Crisis. 
-This makes it the first time the MAS had taken these two measures together.
-Unlike many central banks around the world, the MAS is not independent from the executive branch of the Singaporean government; chairmen of the MAS were from the same political party of the Government. 
-Previous chairmen were also either the incumbent or former Ministers of Finance, or were former Prime Ministers or Deputy Prime Ministers of Singapore.'''
-user_input = st.text_area(label='Paste your own text or use the sample provided.', value=sample_text)
-st.write('\n')
-st.write('\n')
+    # Function to call user message and chat history
+    def user(user_message, history):
+        return "", history + [[user_message, None]]
 
-# summarize text
-summarized_text = summarizer_model(user_input)[0]['summary_text']
+    # Function to call model and chat history
+    def bot(history, temperature, max_output_tokens, top_p, top_k, speed):
+        # Store param arguments as dictionary 
+        llm_parameters = {
+        'temperature': temperature,
+        'max_output_tokens': max_output_tokens, 
+        'top_p': top_p,
+        'top_k': top_k,
+        }
+        # Get last user message
+        user_message = history[-1][0]
+        # Invoke model
+        bot_message = llm_chatbot.send_message(user_message, **llm_parameters).text
+        # Set last message in chat history as blank to prepare for response
+        history[-1][1] = ""
+        # Stream model response
+        for character in bot_message:
+            history[-1][1] += character
+            # Adjust the speed of stream
+            time.sleep(speed)
+            yield history
 
-st.write('Here is your summarized text:')
-st.success(summarized_text)
-st.write('\n')
-st.write('\n')
+    # User message activates a chain of functions
+    msg.submit(fn=user, inputs=[msg, chatbot], outputs=[msg, chatbot], queue=False).then(
+        fn=bot, inputs=[chatbot, temperature, max_output_tokens, top_p, top_k, speed], outputs=chatbot
+        )
+    send_message.click(fn=user, inputs=[msg, chatbot], outputs=[msg, chatbot], queue=False).then(
+        fn=bot, inputs=[chatbot, temperature, max_output_tokens, top_p, top_k, speed], outputs=chatbot
+        )
+    
+    # Reset chatbot on click of 'clear_chat' button
+    clear_chat.click(lambda: None, None, chatbot, queue=False)
 
-
-
-# Define summarization context prompt
-prompt_summarization = 'Summarize the following text:\n' 
-# Define model params for text-bison
-# https://cloud.google.com/vertex-ai/docs/generative-ai/model-reference/text
-parameters = {
-    "temperature": 0.2,
-    "max_output_tokens": 1024,   
-    "top_p": .8,                
-    "top_k": 40,                 
-}
-# Define model
-model = TextGenerationModel.from_pretrained("text-bison@001")
-# Invoke Inference
-summarized_text_palm = model.predict(
-    prompt_summarization+user_input,
-    **parameters,
-    )
-
-# Input for LLM prompting:
-st.write('And here is a summarization by PalM 2:')
-st.success(summarized_text_palm)
-st.write('\n')
-st.write('\n')
-
-
-
-st.write('Input prompt for LLM:')
-# Define user prompt
-user_prompt = st.text(label='Paste your own text or use the sample provided.', value='Give me ten interview questions for the role of program manager.')
-# Invoke Inference
-response = model.predict(
-    user_prompt,
-    **parameters,
-    )
-st.success(response)
-st.write('\n')
-st.write('\n')
-
-
-
-# st.write('Input SageMaker Model Endpoint to use for summarization:')
-# # define sagemaker endpoint
-# endpoint = st.text_input(label='SageMaker Model Endpoint')
-
-# # summarize text
-# if endpoint != '':
-#     payload = json.dumps({"inputs": sample_text}).encode('utf-8')
-#     response = boto3.client('sagemaker-runtime').invoke_endpoint(EndpointName=endpoint, ContentType='application/json', Body=payload)
-#     endpoint_summarized_text = json.loads(response['Body'].read().decode())
-#     st.success(endpoint_summarized_text[0]['summary_text'])
-# else:
-#     st.write('No Endpoint entered.')
-
-
-
-# st.write('Input SageMaker Model Endpoint to use for LLM prompting:')
-# # define sagemaker endpoint
-# llm_endpoint = st.text_input(label='SageMaker LLM Endpoint')
-# user_input = st.text_input(label='User Prompt')
-                           
-# # summarize text
-# if llm_endpoint != '' and user_input != '':
-#     # define payload
-#     prompt = f"""You are an helpful Assistant, called Falcon.
-#     User:{user_input}
-#     Falcon:"""
-
-#     payload = {
-#         "inputs": prompt,
-#         "parameters": {
-#             "do_sample": True,
-#             "top_k": 50,
-#             "top_p": 0.2,
-#             "temperature": 0.8,
-#             "max_new_tokens": 1024,
-#             "repetition_penalty": 1.03,
-#             "stop": ["\nUser:","<|endoftext|>","</s>"]
-#         }
-#     }
-#     # Inference
-#     response = boto3.client('sagemaker-runtime').invoke_endpoint(EndpointName=llm_endpoint, ContentType='application/json', Body=json.dumps(payload).encode('utf-8'))
-#     assistant_reply = json.loads(response['Body'].read().decode())
-#     st.success(assistant_reply[0]['generated_text'][len(prompt):])
-# else:
-#     st.write('No Endpoint and User Prompt entered.')
+# Launch app
+demo.queue()
+demo.launch(server_name="0.0.0.0", server_port=7860)
